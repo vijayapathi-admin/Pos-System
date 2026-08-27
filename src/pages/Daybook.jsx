@@ -4,6 +4,7 @@ import { exportToExcel } from "../utils";
 import { useNavigate } from "react-router-dom";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import ReceiptTemplate from "../components/ReceiptTemplate";
 
 export default function Daybook() {
   const { 
@@ -31,42 +32,68 @@ export default function Daybook() {
 
   const handlePrint = () => {
     if (!receiptRef.current) return;
-    const printWindow = window.open("", "_blank", "width=800,height=600");
+    const printWindow = window.open("", "_blank", "width=850,height=700");
+    if (!printWindow) return alert("Please allow popups to print receipt.");
+
     printWindow.document.write(`
+      <!DOCTYPE html>
       <html>
       <head>
-        <title>Receipt - VIJAYAPATHI TRADERS</title>
+        <title>Invoice - VIJAYAPATHI TRADERS</title>
         <style>
-          @page { size: A5 portrait; margin: 5mm; }
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 13px; color: #000; background: #fff; }
-          .a5-container { width: 148mm; min-height: 200mm; margin: 0 auto; padding: 10mm 15mm; }
-          .receipt-header { text-align: center; border-bottom: 1px solid #000; padding-bottom: 10px; margin-bottom: 15px; }
-          .receipt-header h2 { font-size: 20px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
-          .receipt-header p { font-size: 12px; }
-          .customer-details { border-bottom: 1px solid #000; padding-bottom: 10px; margin-bottom: 10px; font-size: 12px; }
-          .table-container { min-height: 150px; }
-          table { width: 100%; border-collapse: collapse; }
-          th, td { border: 1px solid #000; padding: 6px 8px; text-align: left; font-size: 12px; }
-          th { background: #f0f0f0; font-weight: bold; }
-          .text-right { text-align: right; }
-          .text-center { text-align: center; }
-          .totals-table { margin-top: 10px; width: 50%; float: right; border-collapse: collapse; }
-          .totals-table td { border: none; padding: 4px 8px; font-size: 12px; border-bottom: 1px solid #eee; }
-          .totals-table tr:last-child td { border-bottom: none; font-weight: bold; font-size: 14px; border-top: 1px solid #000; }
-          .clearfix::after { content: ""; clear: both; display: table; }
-          .receipt-footer { text-align: center; margin-top: 30px; border-top: 1px solid #000; padding-top: 10px; font-size: 11px; font-weight: bold; }
-          .tagline { margin-top: 8px; font-size: 12px; text-transform: uppercase; text-decoration: underline; }
+          html, body {
+            width: 100%;
+            background: #ffffff;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          body {
+            padding: 10px;
+            display: flex;
+            justify-content: center;
+          }
+          .a5-receipt-container {
+            width: 140mm !important;
+            max-width: 140mm !important;
+            margin: 0 auto !important;
+            box-sizing: border-box !important;
+            border: 1.5px solid #0f172a !important;
+            padding: 14px !important;
+            background: #ffffff !important;
+          }
+          @media print {
+            @page {
+              size: A5 portrait;
+              margin: 4mm;
+            }
+            body {
+              padding: 0;
+            }
+            .a5-receipt-container {
+              width: 100% !important;
+              max-width: 100% !important;
+            }
+          }
         </style>
       </head>
       <body>
-        ${receiptRef.current.innerHTML}
-        <script>window.onload = function() { window.print(); window.close(); }<\/script>
+        ${receiptRef.current.outerHTML}
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+              window.close();
+            }, 250);
+          };
+        </script>
       </body>
       </html>
     `);
     printWindow.document.close();
   };
+
 
   const handleDownloadPDF = async () => {
     if (!receiptRef.current) return;
@@ -678,96 +705,7 @@ ${items}
             <div className="sale-completed-label" style={{ marginBottom: '20px' }}>BILL PREVIEW</div>
             
             <div style={{ background: '#fff', padding: '10px' }}>
-              <div ref={receiptRef} className="a5-container" style={{ margin: '0 auto', width: '100%', maxWidth: '148mm', padding: '15px', background: '#fff', color: '#000', border: '1.5px solid #000', fontFamily: 'sans-serif', boxSizing: 'border-box' }}>
-                <div className="receipt-header" style={{ textAlign: 'center', borderBottom: '1.5px solid #000', paddingBottom: '10px', marginBottom: '15px' }}>
-                  <h2 style={{ fontSize: "20px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "1px", margin: "0 0 4px 0" }}>VIJAYAPATHI TRADERS</h2>
-                  <p style={{ fontSize: "12px", margin: "2px 0" }}>{viewingBillWithRoundOff.isGstBill ? "TAX INVOICE" : "BILL OF SUPPLY"}</p>
-                  <p style={{ fontSize: "11px", margin: "2px 0", color: "#444" }}>Date: {viewingBillWithRoundOff.date} &nbsp;&nbsp;|&nbsp;&nbsp; Time: {viewingBillWithRoundOff.time}</p>
-                </div>
-
-                {(viewingBillWithRoundOff.customerName || viewingBillWithRoundOff.customerPhone) && (
-                  <div className="customer-details" style={{ borderBottom: "1.5px solid #000", paddingBottom: "10px", marginBottom: "15px", fontSize: "12px", lineHeight: "1.5" }}>
-                    <strong>Billed To:</strong><br/>
-                    {viewingBillWithRoundOff.customerName || "Walk-in Customer"}<br/>
-                    {viewingBillWithRoundOff.customerPhone ? `Phone: ${viewingBillWithRoundOff.customerPhone}` : ""}
-                    {viewingBillWithRoundOff.siteName && <div>🏡 Site: {viewingBillWithRoundOff.siteName}</div>}
-                  </div>
-                )}
-
-                <div className="table-container" style={{ minHeight: '150px' }}>
-                  <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr>
-                        <th style={{ border: '1px solid #000', padding: '6px 8px', fontSize: '11px', background: '#f0f0f0', fontWeight: 'bold', textAlign: 'center', width: '35px' }}>S.No</th>
-                        <th style={{ border: '1px solid #000', padding: '6px 8px', fontSize: '11px', background: '#f0f0f0', fontWeight: 'bold', textAlign: 'left' }}>Product Name</th>
-                        {viewingBillWithRoundOff.isGstBill && <th style={{ border: '1px solid #000', padding: '6px 8px', fontSize: '11px', background: '#f0f0f0', fontWeight: 'bold', textAlign: 'left', width: '45px' }}>HSN</th>}
-                        <th style={{ border: '1px solid #000', padding: '6px 8px', fontSize: '11px', background: '#f0f0f0', fontWeight: 'bold', textAlign: 'center', width: '55px' }}>Qty</th>
-                        <th style={{ border: '1px solid #000', padding: '6px 8px', fontSize: '11px', background: '#f0f0f0', fontWeight: 'bold', textAlign: 'right', width: '65px' }}>Rate (₹)</th>
-                        {viewingBillWithRoundOff.isGstBill && <th style={{ border: '1px solid #000', padding: '6px 8px', fontSize: '11px', background: '#f0f0f0', fontWeight: 'bold', textAlign: 'right', width: '45px' }}>GST %</th>}
-                        <th style={{ border: '1px solid #000', padding: '6px 8px', fontSize: '11px', background: '#f0f0f0', fontWeight: 'bold', textAlign: 'right', width: '80px' }}>Total (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {viewingBillWithRoundOff.items?.map((item, i) => (
-                        <tr key={i}>
-                          <td style={{ border: '1px solid #000', padding: '5px 6px', fontSize: '11px', textAlign: 'center' }}>{i + 1}</td>
-                          <td style={{ border: '1px solid #000', padding: '5px 6px', fontSize: '11px', textAlign: 'left', fontWeight: 'bold', wordBreak: 'break-word', whiteSpace: 'normal' }}>{item.name}</td>
-                          {viewingBillWithRoundOff.isGstBill && <td style={{ border: '1px solid #000', padding: '5px 6px', fontSize: '11px', textAlign: 'left' }}>{item.hsnCode}</td>}
-                          <td style={{ border: '1px solid #000', padding: '5px 6px', fontSize: '11px', textAlign: 'center' }}>{item.qty} {item.unit || 'Nos'}</td>
-                          <td style={{ border: '1px solid #000', padding: '5px 6px', fontSize: '11px', textAlign: 'right' }}>{parseFloat(item.sellingPrice).toFixed(2)}</td>
-                          {viewingBillWithRoundOff.isGstBill && <td style={{ border: '1px solid #000', padding: '5px 6px', fontSize: '11px', textAlign: 'right' }}>{item.gstRate}%</td>}
-                          <td style={{ border: '1px solid #000', padding: '5px 6px', fontSize: '11px', textAlign: 'right', fontWeight: 'bold' }}>{(parseFloat(item.sellingPrice) * item.qty).toFixed(2)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="clearfix" style={{ marginTop: '15px' }}>
-                  <table style={{ width: '50%', marginLeft: 'auto', borderCollapse: 'collapse' }}>
-                    <tbody>
-                      <tr>
-                        <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'left' }}>Subtotal</td>
-                        <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'right', fontWeight: 'bold' }}>₹{viewingBillWithRoundOff.subtotal?.toFixed(2) || viewingBillWithRoundOff.items?.reduce((sum, item) => sum + parseFloat(item.sellingPrice) * item.qty, 0).toFixed(2)}</td>
-                      </tr>
-                      {viewingBillWithRoundOff.discount > 0 && (
-                        <tr>
-                          <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'left' }}>Discount</td>
-                          <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'right', color: '#e74c3c', fontWeight: 'bold' }}>-₹{viewingBillWithRoundOff.discount.toFixed(2)}</td>
-                        </tr>
-                      )}
-                      {viewingBillWithRoundOff.isGstBill && (
-                        <>
-                          <tr>
-                            <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'left' }}>CGST</td>
-                            <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'right' }}>+₹{viewingBillWithRoundOff.cgst?.toFixed(2)}</td>
-                          </tr>
-                          <tr>
-                            <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'left' }}>SGST</td>
-                            <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'right' }}>+₹{viewingBillWithRoundOff.sgst?.toFixed(2)}</td>
-                          </tr>
-                        </>
-                      )}
-                      {viewingBillWithRoundOff.roundOff !== 0 && (
-                        <tr>
-                          <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'left' }}>Round Off</td>
-                          <td style={{ padding: '4px 6px', fontSize: '11px', borderBottom: '1.5px solid #eee', textAlign: 'right' }}>{viewingBillWithRoundOff.roundOff > 0 ? "+" : ""}₹{viewingBillWithRoundOff.roundOff.toFixed(2)}</td>
-                        </tr>
-                      )}
-                      <tr>
-                        <td style={{ padding: '6px 6px', fontSize: '13px', fontWeight: 'bold', borderTop: '1.5px solid #000', borderBottom: '2px double #000', textAlign: 'left' }}>Grand Total</td>
-                        <td style={{ padding: '6px 6px', fontSize: '13px', fontWeight: 'bold', borderTop: '1.5px solid #000', borderBottom: '2px double #000', textAlign: 'right', color: '#2563eb' }}>₹{viewingBillWithRoundOff.roundedTotal?.toLocaleString()}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="receipt-footer" style={{ textAlign: 'center', marginTop: '30px', borderTop: '1.5px solid #000', paddingTop: '10px', fontSize: '11px' }}>
-                  <p style={{ margin: "2px 0", fontWeight: "bold" }}>Payment Mode: {viewingBillWithRoundOff.paymentMethod}</p>
-                  <p style={{ margin: "2px 0" }}>Thank you for your business!</p>
-                  <p className="tagline" style={{ margin: "6px 0 0 0", fontSize: "11px", textTransform: "uppercase", textDecoration: "underline", fontWeight: "bold" }}>NO RETURN{viewingBillWithRoundOff.paymentMethod === "CREDIT" ? "" : ", NO CREDIT"}</p>
-                </div>
-              </div>
+              <ReceiptTemplate ref={receiptRef} sale={viewingBillWithRoundOff} isDraft={false} />
             </div>
 
             <div className="modal-actions" style={{ marginTop: '30px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>

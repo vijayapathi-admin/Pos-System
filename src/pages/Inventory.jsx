@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
 import { useApp } from "../AppContext";
-import { exportToExcel } from "../utils";
+import { exportToExcel, matchesProductSearch } from "../utils";
 import * as XLSX from "xlsx";
 import BarcodeScannerModal from "../components/BarcodeScannerModal";
 import BarcodeGenerator from "../components/BarcodeGenerator";
@@ -28,7 +28,8 @@ const emptyForm = {
 };
 
 export default function Inventory() {
-  const { products, suppliers, addProduct, updateProduct, deleteProduct, importProductsBatch, deleteAllProducts, batchUpdateProducts } = useApp();
+  const { products, suppliers, addProduct, updateProduct, deleteProduct, importProductsBatch, deleteAllProducts, batchUpdateProducts, fetchStockMovements, adjustStockTransaction } = useApp();
+
   const [search, setSearch] = useState("");
   const fileInputRef = useRef(null);
   const [category, setCategory] = useState("ALL");
@@ -54,6 +55,25 @@ export default function Inventory() {
   const [barcodeLayout, setBarcodeLayout] = useState("A4");
   const [locateProduct, setLocateProduct] = useState(null);
   const [locatorTab, setLocatorTab] = useState("map"); // map | shelf
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyProduct, setHistoryProduct] = useState(null);
+  const [historyLogs, setHistoryLogs] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const openHistoryModal = async (product) => {
+    setHistoryProduct(product);
+    setShowHistoryModal(true);
+    setLoadingHistory(true);
+    try {
+      const logs = await fetchStockMovements(product.id, 50);
+      setHistoryLogs(logs);
+    } catch (err) {
+      console.error("Failed to load stock history:", err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
 
   const handleAddProductToBarcode = (product) => {
     setBarcodeBatch(prev => ({
@@ -226,11 +246,24 @@ export default function Inventory() {
   };
 
   const filtered = products.filter(p => {
-    const matchSearch = p.name?.toLowerCase().includes(search.toLowerCase()) || p.productCode?.toLowerCase().includes(search.toLowerCase());
-    const matchCat = category === "ALL" || String(p.category || "").toUpperCase() === category;
+    const matchSearch = matchesProductSearch(p, search);
     
+    const pCat = String(p.category || "").toUpperCase();
+    const selCat = category.toUpperCase();
+    
+    let matchCat = selCat === "ALL";
+    if (!matchCat) {
+      if (selCat === "PLUMBING") {
+        matchCat = ["PLUMBING", "CPVC", "PVC", "UPVC"].includes(pCat);
+      } else if (selCat === "SANITARY" || selCat === "SANITARYWARE") {
+        matchCat = ["SANITARY", "SANITARYWARE"].includes(pCat);
+      } else {
+        matchCat = pCat === selCat;
+      }
+    }
+
     let matchPlumbingType = true;
-    if (category === "PLUMBING" && plumbingFilter !== "ALL") {
+    if (selCat === "PLUMBING" && plumbingFilter !== "ALL") {
       const name = String(p.name || "").toUpperCase();
       if (plumbingFilter === "CPVC") {
         matchPlumbingType = name.includes("CPVC");
@@ -245,6 +278,7 @@ export default function Inventory() {
     const matchLowStock = showLowStock ? isLowStock : true;
     return matchSearch && matchCat && matchPlumbingType && matchLowStock;
   });
+
 
   const activeSortField = sortField || (["PLUMBING", "CPVC", "PVC", "UPVC"].includes(String(category || "").toUpperCase()) ? "productCode" : "name");
   const activeSortAsc = sortAsc;
@@ -763,6 +797,37 @@ export default function Inventory() {
     }
   };
 
+  const handleDeleteAllProducts = async () => {
+    if (products.length === 0) {
+      alert("There are no products in the inventory to delete.");
+      return;
+    }
+
+    const confirm1 = confirm(
+      `⚠️ DANGER: You are about to permanently delete ALL ${products.length} products and stock items from the database.\n\nThis will remove all stock quantities, barcodes, pricing, and product records.\n\nAre you sure you want to proceed?`
+    );
+    if (!confirm1) return;
+
+    const typedConfirmation = prompt(
+      `To confirm permanent deletion of ALL ${products.length} products, type "DELETE ALL STOCKS" below:`
+    );
+    if (typedConfirmation !== "DELETE ALL STOCKS") {
+      alert("Confirmation failed. Text did not match. Operation cancelled.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await deleteAllProducts();
+      alert(`Success! Permanently deleted all ${products.length} products and stock items from the database.`);
+    } catch (err) {
+      console.error(err);
+      alert("Error deleting products: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
 
   const handleBulkParse = () => {
     if (!bulkInput.trim()) return;
@@ -909,6 +974,14 @@ export default function Inventory() {
             accept=".xlsx, .xls, .csv"
             style={{ display: "none" }}
           />
+          <button
+            className="btn-secondary"
+            onClick={handleDeleteAllProducts}
+            style={{ background: "rgba(231, 76, 60, 0.15)", color: "#e74c3c", borderColor: "rgba(231, 76, 60, 0.3)", fontWeight: "bold" }}
+            title="Permanently delete all products and stock items from the database"
+          >
+            🗑️ DELETE ALL STOCKS
+          </button>
           {isBatchEditing ? (
             <>
               <button className="btn-primary" onClick={handleSaveBatch} style={{ background: "#2ecc71" }} disabled={saving}>
@@ -1108,11 +1181,13 @@ export default function Inventory() {
                   <td>
                     {!isBatchEditing ? (
                       <div className="action-btns">
+                        <button className="edit-btn" style={{ background: "#2980b9" }} title="Stock Movement History" onClick={() => openHistoryModal(product)}>📜</button>
                         <button className="edit-btn" style={{ background: "#8e44ad" }} title="Locate on Floor Map" onClick={() => setLocateProduct(product)}>📍</button>
                         <button className="edit-btn" style={{ background: "#27ae60" }} title="Add to Barcode Batch" onClick={() => handleAddProductToBarcode(product)}>🏷️</button>
                         <button className="edit-btn" onClick={() => openEdit(product)}>✏️</button>
                         <button className="delete-btn" onClick={() => handleDelete(product.id, product.name)}>🗑</button>
                       </div>
+
                     ) : (
                       <span style={{ color: "#888", fontSize: "11px" }}>Editing...</span>
                     )}
@@ -1581,6 +1656,76 @@ export default function Inventory() {
           </div>
         </div>
       )}
+
+      {/* Stock Movement Audit History Modal */}
+      {showHistoryModal && historyProduct && (
+        <div className="modal-overlay" style={{ zIndex: 9996 }} onClick={() => setShowHistoryModal(false)}>
+          <div className="modal-content form-modal" style={{ maxWidth: "700px", width: "95%", padding: "20px" }} onClick={e => e.stopPropagation()}>
+            <div className="modal-stripe"></div>
+            <h2 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "8px 0 15px 0" }}>
+              <span>📜 Stock Movement History: <strong>{historyProduct.name}</strong></span>
+              <button className="btn-secondary" style={{ padding: "4px 8px", fontSize: "11px" }} onClick={() => setShowHistoryModal(false)}>Close</button>
+            </h2>
+
+            <div style={{ background: "rgba(120,113,108,0.1)", borderRadius: "8px", padding: "10px", marginBottom: "15px", fontSize: "13px", display: "flex", gap: "20px" }}>
+              <div><strong>Code:</strong> {historyProduct.productCode || "-"}</div>
+              <div><strong>Current Stock:</strong> <span style={{ color: "#27ae60", fontWeight: "bold" }}>{historyProduct.stock} {historyProduct.unit || "Nos"}</span></div>
+              <div><strong>Category:</strong> {historyProduct.category}</div>
+            </div>
+
+            {loadingHistory ? (
+              <div style={{ textAlign: "center", padding: "30px", color: "#888" }}>Loading movement logs...</div>
+            ) : historyLogs.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "30px", color: "#888" }}>No recorded stock movements found for this product yet. Future purchases and sales will automatically log movement trails here.</div>
+            ) : (
+              <div style={{ maxHeight: "350px", overflowY: "auto", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px" }}>
+                <table className="data-table" style={{ fontSize: "12px" }}>
+                  <thead>
+                    <tr>
+                      <th>TIMESTAMP</th>
+                      <th>TYPE</th>
+                      <th>PREV STOCK</th>
+                      <th>CHANGE</th>
+                      <th>NEW STOCK</th>
+                      <th>USER / REASON</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyLogs.map(log => {
+                      const isPositive = log.qty > 0;
+                      return (
+                        <tr key={log.id}>
+                          <td>{log.dateStr}</td>
+                          <td>
+                            <span style={{
+                              padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold",
+                              background: log.type === "SALE" ? "#e74c3c" : log.type === "PURCHASE" ? "#2ecc71" : "#f39c12",
+                              color: "#fff"
+                            }}>
+                              {log.type}
+                            </span>
+                          </td>
+                          <td>{log.previousStock}</td>
+                          <td style={{ color: isPositive ? "#2ecc71" : "#e74c3c", fontWeight: "bold" }}>
+                            {isPositive ? `+${log.qty}` : log.qty}
+                          </td>
+                          <td>{log.newStock}</td>
+                          <td>{log.createdBy || "System"} <br/><small style={{ color: "#888" }}>{log.reason || "-"}</small></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="modal-btns" style={{ marginTop: "15px" }}>
+              <button className="btn-secondary" style={{ width: "100%" }} onClick={() => setShowHistoryModal(false)}>Close Log</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.env
+.env*.local
+.DS_Store
+
+# Firebase
+.firebase/
+ai-backend/serviceAccountKey.json
+
+# Local backup / scratch / generated files
+*.txt
+*.xlsx
+old_*.jsx
+restored_*.jsx
+extract*.py
+extract.js
+convert.js

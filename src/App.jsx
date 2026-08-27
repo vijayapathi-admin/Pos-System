@@ -20,7 +20,9 @@ import TaxHelper from "./pages/TaxHelper";
 import PLBoard from "./pages/PLBoard";
 import ReferralLedger from "./pages/ReferralLedger";
 import BarcodeDatabase from "./pages/BarcodeDatabase";
+import MobileOcrScanner from "./pages/MobileOcrScanner";
 import "./styles.css";
+
 
 function ProtectedLayout({ children }) {
   const { user, loading } = useApp();
@@ -62,7 +64,9 @@ function AppRoutes() {
       <Route path="/p-and-l" element={<ProtectedLayout><PLBoard /></ProtectedLayout>} />
       <Route path="/referral-ledger" element={<ProtectedLayout><ReferralLedger /></ProtectedLayout>} />
       <Route path="/barcode-db" element={<ProtectedLayout><BarcodeDatabase /></ProtectedLayout>} />
+      <Route path="/mobile-scanner" element={<MobileOcrScanner />} />
       <Route path="*" element={<Navigate to="/" replace />} />
+
     </Routes>
   );
 }

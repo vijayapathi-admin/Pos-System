@@ -17,6 +17,11 @@ import {
   onAuthStateChanged
 } from "firebase/auth";
 import { db, auth } from "./firebase";
+import { getProductByCode, fetchProductsPaginated } from "./services/productService";
+import { executeAtomicSaleTransaction, cancelSaleTransaction } from "./services/billingService";
+import { adjustStockTransaction, fetchStockMovements } from "./services/inventoryService";
+import { lookupOcrProduct } from "./services/ocrScannerService";
+
 
 const AppContext = createContext();
 
@@ -778,14 +783,16 @@ export const AppProvider = ({ children }) => {
   
   const deleteAllProducts = async () => {
     try {
-      const chunkSize = 100;
-      for (let i = 0; i < products.length; i += chunkSize) {
-        const chunk = products.slice(i, i + chunkSize);
-        await Promise.all(chunk.map(prod => deleteDoc(doc(db, "products", prod.id))));
+      const snap = await getDocs(collection(db, "products"));
+      const docsToDelete = snap.docs;
+      const chunkSize = 50;
+      for (let i = 0; i < docsToDelete.length; i += chunkSize) {
+        const chunk = docsToDelete.slice(i, i + chunkSize);
+        await Promise.all(chunk.map(d => deleteDoc(doc(db, "products", d.id))));
       }
       await fetchProducts();
     } catch (e) {
-      console.error(e);
+      console.error("deleteAllProducts error:", e);
       throw e;
     }
   };
@@ -810,56 +817,23 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // Sales
+  // Sales (Atomic Transaction backed)
   const completeSale = async (cartItems, paymentMethod, customerName, customerPhone, discount, commissionPct, commissionAmt, isGstBill = false, gstDetails = {}) => {
-    const rawSubtotal = cartItems.reduce((sum, item) => sum + item.sellingPrice * item.qty, 0);
-    const itemRatio = (item) => (item.sellingPrice * item.qty) / (rawSubtotal || 1);
-    
-    const totalGst = gstDetails.totalGst || (isGstBill ? cartItems.reduce((sum, item) => {
-      const taxable = (item.sellingPrice * item.qty) - ((discount || 0) * itemRatio(item));
-      return sum + (taxable * (parseFloat(item.gstRate) || 0) / 100);
-    }, 0) : 0);
-
-    const total = rawSubtotal - (discount || 0) + totalGst;
-    const profit = cartItems.reduce((sum, item) => sum + (item.sellingPrice - item.purchasePrice) * item.qty, 0) - (discount || 0) - (commissionAmt || 0);
-    
-    const now = new Date();
-    const dateStr = now.toISOString().split("T")[0];
-    const timeStr = now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-
-    const saleDoc = {
-      items: cartItems.map(i => ({
-        productId: i.id, name: i.name, qty: i.qty, sellingPrice: i.sellingPrice, purchasePrice: i.purchasePrice,
-        hsnCode: i.hsnCode || "", gstRate: parseFloat(i.gstRate) || 0
-      })),
-      total, profit, discount: discount || 0,
-      isGstBill, totalGst, 
-      cgst: gstDetails.isInterState ? 0 : totalGst / 2, 
-      sgst: gstDetails.isInterState ? 0 : totalGst / 2,
-      igst: gstDetails.isInterState ? totalGst : 0,
-      subtotal: rawSubtotal,
-      taxSummary: gstDetails.taxSummary || {},
-      paymentMethod,
-      customerName: customerName || "", 
-      customerPhone: customerPhone || "",
-      customerGstin: gstDetails.customerGstin || "",
-      customerAddress: gstDetails.customerAddress || "",
-      placeOfSupply: gstDetails.placeOfSupply || "TAMIL NADU",
-      referrerId: gstDetails.referrerId || "",
-      referrerName: gstDetails.referrerName || "",
-      referrerPhone: gstDetails.referrerPhone || "",
-      referrerDesignation: gstDetails.referrerDesignation || "",
-      isCommissionPaid: gstDetails.isCommissionPaid || false,
-      siteName: gstDetails.siteName || "",
-      commissionPercent: commissionPct || 0,
-      commissionAmount: commissionAmt || 0,
-      date: dateStr, time: timeStr
-    };
-
     if (!navigator.onLine) {
-      // Offline mode
+      // Offline fallback mode
+      const rawSubtotal = cartItems.reduce((sum, item) => sum + item.sellingPrice * item.qty, 0);
+      const itemRatio = (item) => (item.sellingPrice * item.qty) / (rawSubtotal || 1);
+      const totalGst = gstDetails.totalGst || (isGstBill ? cartItems.reduce((sum, item) => {
+        const taxable = (item.sellingPrice * item.qty) - ((discount || 0) * itemRatio(item));
+        return sum + (taxable * (parseFloat(item.gstRate) || 0) / 100);
+      }, 0) : 0);
+      const total = rawSubtotal - (discount || 0) + totalGst;
+      const profit = cartItems.reduce((sum, item) => sum + (item.sellingPrice - item.purchasePrice) * item.qty, 0) - (discount || 0) - (commissionAmt || 0);
+      const now = new Date();
+
       const offlineDoc = { 
-        ...saleDoc, 
+        items: cartItems.map(i => ({ productId: i.id, name: i.name, qty: i.qty, sellingPrice: i.sellingPrice, purchasePrice: i.purchasePrice, hsnCode: i.hsnCode || "", gstRate: parseFloat(i.gstRate) || 0 })),
+        total, profit, discount: discount || 0, isGstBill, totalGst, subtotal: rawSubtotal, paymentMethod, customerName: customerName || "", customerPhone: customerPhone || "", date: now.toISOString().split("T")[0], time: now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
         id: "offline_" + Date.now(), 
         isOffline: true, 
         createdAt: new Date().toISOString() 
@@ -869,7 +843,6 @@ export const AppProvider = ({ children }) => {
       setOfflineSales(newOfflineSales);
       localStorage.setItem("offlineSales", JSON.stringify(newOfflineSales));
 
-      // Update local state to reflect immediately
       setSales(prev => [...prev, offlineDoc]);
       setProducts(prev => prev.map(p => {
         const cartItem = cartItems.find(i => i.id === p.id);
@@ -880,61 +853,38 @@ export const AppProvider = ({ children }) => {
     }
 
     try {
-      saleDoc.createdAt = serverTimestamp();
-      const sanitizedSaleDoc = sanitizeData(saleDoc);
-      await addDoc(collection(db, "sales"), sanitizedSaleDoc);
-
-      // Update stock and totalSold for items concurrently
-      const updatePromises = cartItems
-        .filter(item => {
-          const idStr = String(item.id);
-          return idStr && idStr !== "undefined" && idStr !== "null" && idStr !== "" && !idStr.startsWith("custom_");
-        })
-        .map(async (item) => {
-          try {
-            await updateDoc(doc(db, "products", item.id), {
-              stock: increment(-item.qty),
-              totalSold: increment(item.qty)
-            });
-          } catch (err) {
-            console.warn(`Failed to update stock for product ${item.id}:`, err);
-          }
-        });
-      await Promise.all(updatePromises);
-      
-      // Fetch fresh data concurrently
-      const [freshProducts] = await Promise.all([fetchProducts(), fetchSales()]);
-      
-      // Check for low stock in the fresh data
-      const soldItems = cartItems.map(i => i.id);
-      const lowStockItems = freshProducts.filter(p => {
-        const threshold = getStockThreshold(p);
-        return soldItems.includes(p.id) && p.stock < threshold;
+      // Execute Atomic Transaction on Firebase
+      const savedSaleDoc = await executeAtomicSaleTransaction({
+        cartItems,
+        paymentMethod,
+        customerName,
+        customerPhone,
+        discount,
+        commissionPct,
+        commissionAmt,
+        isGstBill,
+        gstDetails,
+        userEmail: user?.email || "cashier@shopops.com"
       });
-      if (lowStockItems.length > 0) {
-        lowStockItems.forEach(p => {
-          const threshold = getStockThreshold(p);
-          addNotification("Low Stock Alert", `${p.name} has dropped below ${threshold} units (${p.stock} left).`, "warning");
-        });
-      }
 
-      return { ...saleDoc };
-    } catch (e) {
-      console.error("Firebase save failed, falling back to offline mode", e);
-      // Fallback to offline if Firebase throws despite navigator.onLine
-      const offlineDoc = { ...saleDoc, id: "offline_" + Date.now(), isOffline: true, createdAt: new Date().toISOString() };
-      const newOfflineSales = [...offlineSales, offlineDoc];
-      setOfflineSales(newOfflineSales);
-      localStorage.setItem("offlineSales", JSON.stringify(newOfflineSales));
-      setSales(prev => [...prev, offlineDoc]);
+      // Update local React state to reflect immediately
+      setSales(prev => [savedSaleDoc, ...prev]);
       setProducts(prev => prev.map(p => {
         const cartItem = cartItems.find(i => i.id === p.id);
         if (cartItem) return { ...p, stock: p.stock - cartItem.qty, totalSold: (p.totalSold || 0) + cartItem.qty };
         return p;
       }));
-      return offlineDoc;
+
+      // Async background refresh of sales & products state
+      Promise.all([fetchProducts(), fetchSales()]).catch(err => console.warn("Background refresh warning:", err));
+
+      return savedSaleDoc;
+    } catch (e) {
+      console.error("Atomic transaction failed:", e);
+      throw e;
     }
   };
+
 
   const settleCreditSale = async (sale, amountPaid, paymentMethod = "CASH") => {
     const currentPaid = sale.creditPaidAmount || 0;
@@ -1296,8 +1246,10 @@ export const AppProvider = ({ children }) => {
     offlineSales, syncOfflineSales,
     notifications, addNotification, removeNotification, checkLowStock, getStockThreshold,
     purchases, addPurchaseBill, fetchPurchases,
-    arimaPredictions, loadingPredictions, fetchAiPredictions
+    arimaPredictions, loadingPredictions, fetchAiPredictions,
+    getProductByCode, fetchProductsPaginated, adjustStockTransaction, fetchStockMovements, lookupOcrProduct, cancelSaleTransaction
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
+

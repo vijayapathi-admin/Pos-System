@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { matchesProductSearch } from "../utils";
 
 // Helper to convert hex colors to rgba for background highlights
 const getRgba = (hex, alpha) => {
@@ -48,8 +49,9 @@ export default function SearchableSelect({
   }, [isOpen, selectedOption]);
 
   const filteredOptions = options.filter(option =>
-    option.label.toLowerCase().includes(search.toLowerCase())
+    matchesProductSearch({ name: option.label }, search)
   );
+
 
   const handleSelect = (option) => {
     onChange(option.value);

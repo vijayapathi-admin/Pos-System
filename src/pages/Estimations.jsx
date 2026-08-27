@@ -3,6 +3,7 @@ import { useApp } from "../AppContext";
 import { useNavigate } from "react-router-dom";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import { matchesProductSearch } from "../utils";
 
 const PIPE_SIZES = ['1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'];
 
@@ -76,12 +77,24 @@ export default function Estimations() {
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
-      const matchSearch = p.name?.toLowerCase().includes(search.toLowerCase()) || 
-                          p.productCode?.toLowerCase().includes(search.toLowerCase());
-      const matchCat = category === "ALL" || p.category?.toUpperCase() === category;
+      const matchSearch = matchesProductSearch(p, search);
+      
+      const pCat = String(p.category || "").toUpperCase();
+      const selCat = category.toUpperCase();
+
+      let matchCat = selCat === "ALL";
+      if (!matchCat) {
+        if (selCat === "PLUMBING") {
+          matchCat = ["PLUMBING", "CPVC", "PVC", "UPVC"].includes(pCat);
+        } else if (selCat === "SANITARY" || selCat === "SANITARYWARE") {
+          matchCat = ["SANITARY", "SANITARYWARE"].includes(pCat);
+        } else {
+          matchCat = pCat === selCat;
+        }
+      }
 
       let matchPlumbingType = true;
-      if (category === "PLUMBING" && plumbingFilter !== "ALL") {
+      if (selCat === "PLUMBING" && plumbingFilter !== "ALL") {
         const name = String(p.name || "").toUpperCase();
         if (plumbingFilter === "CPVC") {
           matchPlumbingType = name.includes("CPVC");
@@ -95,6 +108,7 @@ export default function Estimations() {
       return matchSearch && matchCat && matchPlumbingType;
     });
   }, [products, search, category, plumbingFilter]);
+
 
   const addToCart = (product) => {
     const existing = cart.find(i => i.id === product.id || i.productId === product.id);
@@ -1084,13 +1098,13 @@ ${items}
             <div className="pos-products-scroll">
               <div className="products-grid">
                 {filteredProducts.map(p => (
-                  <div key={p.id} className={`product-card ${p.stock <= 0 ? "out-of-stock" : ""}`} onClick={() => addToCart(p)}>
+                  <div key={p.id} className="product-card" onClick={() => addToCart(p)}>
                     <div className="product-card-cat">{p.category?.toUpperCase()}</div>
                     <div className="product-card-name">{p.name}</div>
                     <div className="product-card-bottom">
                       <span className="product-card-price">₹{p.sellingPrice?.toLocaleString()}</span>
-                      <span className={p.stock <= 5 ? "stock-warning" : "prod-stock-normal"} style={{ fontSize: "11px", color: p.stock <= 5 ? "#2563eb" : "#888", fontWeight: "700" }}>
-                        {p.stock <= 0 ? "OUT" : `Stock: ${p.stock}`}
+                      <span className="prod-stock-normal" style={{ fontSize: "11px", color: "#16a34a", fontWeight: "700" }}>
+                        Available
                       </span>
                     </div>
                   </div>
@@ -1345,7 +1359,6 @@ ${items}
                           addToCart(p);
                           alert(`Added ${p.name} to active quote!`);
                         }}
-                        disabled={p.stock <= 0}
                       >
                         ➕ Add
                       </button>

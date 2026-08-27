@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Html5Qrcode } from "html5-qrcode";
+import { normalizeOcrCode } from "../services/ocrScannerService";
+
 
 export default function BarcodeScannerModal({ onClose, onScan }) {
   const [manualCode, setManualCode] = useState("");
@@ -108,9 +110,10 @@ export default function BarcodeScannerModal({ onClose, onScan }) {
               await html5QrcodeInstance.stop();
             }
             if (isSubscribed) {
-              onScan(decodedText);
+              onScan(normalizeOcrCode(decodedText));
             }
           },
+
           () => {
             // Quiet fail during live scanning frame ticks
           }
@@ -217,7 +220,8 @@ export default function BarcodeScannerModal({ onClose, onScan }) {
         {/* Manual Keyboard Code Fallback */}
         <div style={{ margin: "15px 0", borderTop: "1.5px dashed rgba(255,255,255,0.15)", paddingTop: "15px" }}>
           <div style={{ fontSize: "12px", color: "#aaa", marginBottom: "8px", fontWeight: "bold" }}>⌨️ Or Enter Product Code Manually:</div>
-          <form onSubmit={(e) => { e.preventDefault(); if (manualCode.trim()) onScan(manualCode.trim()); }} style={{ display: "flex", gap: "10px" }}>
+          <form onSubmit={(e) => { e.preventDefault(); if (manualCode.trim()) onScan(normalizeOcrCode(manualCode)); }} style={{ display: "flex", gap: "10px" }}>
+
             <input 
               type="text" 
               placeholder="e.g. HRD-001" 
